@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIコンシェルジュ</title>
+    <style>
+        /* 全体設定 */
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: "Helvetica Neue", Arial, sans-serif; background-color: #ffffff; }
+        .page-container { display: flex; flex-direction: column; height: 100vh; position: relative; }
+        
+        /* 💡 バージョン表記（左下）を少し大きく・濃く変更 */
+        #version-display { position: absolute; bottom: 8px; left: 10px; font-size: 12px; color: #7f8c8d; z-index: 1000; pointer-events: none; letter-spacing: 0.05em; font-weight: bold; }
+
+        /* 左上のロゴマークエリア */
+        #top-left-logo { position: absolute; top: 20px; left: 20px; z-index: 100; width: auto; height: 60px; object-fit: contain; }
+
+        /* 右上のQRコード表示エリア */
+        #qr-container {
+            position: absolute; top: 100px; right: 40px; z-index: 50;
+            display: flex; flex-direction: column; align-items: center; gap: 15px;
+            background: rgba(255, 255, 255, 0.95); padding: 20px; 
+            border-radius: 16px; box-shadow: 0 5px 20px rgba(0,0,0,0.05);
+            border: 1px solid #eef2f7; text-align: center; transition: all 0.3s ease;
+        }
+        .qr-box { display: flex; flex-direction: column; align-items: center; }
+        .qr-divider { width: 80%; border: 0; border-top: 1px dashed #cbd5e1; margin: 0; }
+        .qr-img { width: 110px; height: 110px; object-fit: contain; margin-bottom: 8px; }
+        .qr-text { font-size: 12px; color: #1a3a5a; font-weight: bold; line-height: 1.4; letter-spacing: 0.05em; }
+        .qr-text span { color: #0084ff; }
+
+        /* メインエリア：中央揃え */
+        main { display: flex; flex: 1; overflow: hidden; padding-bottom: 220px; justify-content: center; gap: 5%; transition: all 0.3s ease; }
+        .left-panel { flex: 0 1 40%; max-width: 450px; display: flex; align-items: flex-end; justify-content: flex-end; position: relative; }
+        .avatar-img { height: 90%; max-height: 800px; object-fit: contain; z-index: 5; }
+        .right-panel { flex: 0 1 40%; max-width: 550px; z-index: 10; padding: 100px 0 10px 0; display: flex; flex-direction: column; transition: all 0.3s ease; }
+        
+        /* チャットログ表示エリア */
+        #chat-log { flex: 1; overflow-y: auto; background-color: #f9fbff; border-radius: 12px; box-shadow: inset 0 2px 10px rgba(0,0,0,0.03); border: 1px solid #eef2f7; padding: 20px; margin-bottom: 10px; }
+        .message { margin-bottom: 15px; display: flex; flex-direction: column; align-items: flex-start; }
+        .message.user { align-items: flex-end; }
+        .message-content { max-width: 80%; padding: 12px 18px; border-radius: 15px; font-size: 16px; line-height: 1.5; word-wrap: break-word; }
+        .message.user .message-content { background-color: #0084ff; color: white; border-top-right-radius: 2px; }
+        .message.ai .message-content { background-color: #e1e8ed; color: #1a3a5a; border-top-left-radius: 2px; }
+
+        /* チャット入力エリア */
+        #chat-input-area { height: 60px; display: flex; align-items: center; background-color: white; border-radius: 30px; border: 1px solid #e1e8ed; padding: 0 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        #recognition-result { flex: 1; font-size: 18px; color: #556677; font-weight: bold; }
+        #recognition-result.listening { color: #ff0055; }
+
+        /* 免責事項のテキストスタイル */
+        .disclaimer-text { font-size: 11.5px; color: #7f8c8d; text-align: center; margin-top: 12px; line-height: 1.4; letter-spacing: 0.03em; }
+
+        /* 下部エリア：大きなマイクボタン */
+        .footer-section { position: absolute; bottom: 0; left: 0; width: 100%; height: 240px; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(218,237,255,0.8) 40%, #a6d2ff 100%); z-index: 20; pointer-events: none; transition: all 0.3s ease; }
+        .mic-button { pointer-events: auto; width: 130px; height: 130px; background: radial-gradient(circle at 35% 35%, #4facfe 0%, #0084ff 100%); border-radius: 50%; border: 5px solid #fff; box-shadow: 0 10px 40px rgba(0,132,255,0.4); cursor: pointer; display: flex; align-items: center; justify-content: center; position: relative; transition: transform 0.1s, background 0.3s; }
+        .mic-button::after { content: ""; position: absolute; top: 12%; left: 20%; width: 45px; height: 25px; background: rgba(255, 255, 255, 0.4); border-radius: 50%; filter: blur(8px); }
+        .mic-button:active { transform: scale(0.92); }
+        .mic-button.listening { background: radial-gradient(circle at 35% 35%, #ff4fac 0%, #ff0055 100%); animation: pulse 1.5s infinite; }
+        .mic-icon { width: 55px; height: 55px; fill: white; z-index: 2; }
+        .mic-label { pointer-events: auto; color: #0066cc; font-weight: bold; font-size: 18px; margin-top: 15px; letter-spacing: 0.1rem; text-shadow: 0 2px 5px rgba(255,255,255,0.8); }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255, 0, 85, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(255, 0, 85, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 0, 85, 0); } }
+
+        /* =========================================
+           💡 レスポンシブ対応
+           ========================================= */
+        @media screen and (max-width: 1400px), screen and (max-height: 900px) {
+            #top-left-logo { height: 45px; top: 15px; left: 15px; }
+            #qr-container { top: 70px; right: 20px; padding: 15px; gap: 10px; transform: scale(0.85); transform-origin: top right; }
+            main { padding-bottom: 180px; gap: 3%; }
+            .left-panel { max-width: 380px; }
+            .right-panel { max-width: 480px; padding-top: 60px; }
+            .footer-section { height: 180px; }
+            .mic-button { width: 100px; height: 100px; }
+            .mic-icon { width: 45px; height: 45px; }
+            .mic-label { font-size: 15px; margin-top: 10px; }
+            .disclaimer-text { font-size: 10px; margin-top: 8px; }
+        }
+
+        @media screen and (max-width: 768px) {
+            #top-left-logo { display: none !important; }
+            #qr-container { display: none !important; }
+            
+            main { flex-direction: column; padding-bottom: 150px; gap: 0; }
+            .left-panel { width: 100%; height: 35vh !important; flex: none !important; padding-top: 15px; justify-content: center; align-items: flex-end; }
+            .avatar-img { height: 100% !important; max-height: 100% !important; width: auto; max-width: 100%; object-fit: contain; }
+            .right-panel { width: 100%; flex: 1; padding: 5px 15px 0 15px; box-sizing: border-box; overflow: hidden; }
+            
+            .message-content { font-size: 14px; padding: 10px 14px; }
+            #chat-input-area { height: 50px; padding: 0 15px; }
+            #recognition-result { font-size: 14px; }
+            .disclaimer-text { font-size: 10px; margin-top: 6px; }
+            
+            .footer-section { height: 140px; }
+            .mic-button { width: 80px; height: 80px; border-width: 3px; }
+            .mic-icon { width: 35px; height: 35px; }
+            .mic-label { font-size: 13px; margin-top: 8px; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="page-container">
+    <div id="version-display">v1.2</div>
+    <img src="./logo.jpg" id="top-left-logo" alt="ロゴマーク" onerror="this.src='./logo.png'">
+
+    <div id="qr-container">
+        <div class="qr-box">
+            <img src="./qr1.jpg" class="qr-img" alt="スマホ用QRコード" onerror="this.src='./qr1.png'">
+            <div class="qr-text">AIコンシェルジュは<br><span>スマートフォン</span>でも<br>ご利用頂けます</div>
+        </div>
+        <hr class="qr-divider">
+        <div class="qr-box">
+            <img src="./qr2.jpg" class="qr-img" alt="予約用QRコード" onerror="this.src='./qr2.png'">
+            <div class="qr-text"><span>その他のお問合せ</span>や<br>次回予約はこちらから</div>
+        </div>
+    </div>
+
+    <main>
+        <div class="left-panel">
+            <img src="./closed.jpg" id="avatar-image" class="avatar-img" alt="AIコンシェルジュ" onerror="this.src='./closed.png'">
+        </div>
+        <div class="right-panel">
+            <div id="chat-log">
+                <div class="message ai">
+                    <div class="message-content">ようこそアットビジネスセンターへ。AIコンシェルジュがご案内させていただきます。下のボタンを押してご質問をどうぞ。</div>
+                </div>
+            </div>
+            <div id="chat-input-area"><span id="recognition-result">⌨️ マイクボタンを押してお話しください...</span></div>
+            <div class="disclaimer-text">
+                ※AIによる自動応答のため、回答の正確性を保証するものではありません。<br>
+                個人情報や機密情報などは発声・入力しないでください。
+            </div>
+        </div>
+    </main>
+
+    <div class="footer-section">
+        <div class="mic-button" id="mic-btn">
+            <svg class="mic-icon" viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+        </div>
+        <div class="mic-label">タップして話す / 終わったらもう一度タップ</div>
+    </div>
+</div>
+
+<script>
+    // --- 画像ファイルの設定 ---
+    let imgClosed = './closed.jpg';
+    let imgOpen = './open.jpg';
+    let imgBlink = './blink.jpg';
+    let imgBow = './bow.jpg';
+
+    const checkImage = (src) => {
+        let img = new Image();
+        img.onerror = () => { 
+            if(src.includes('closed')) imgClosed = './closed.png';
+            if(src.includes('open')) imgOpen = './open.png';
+            if(src.includes('blink')) imgBlink = './blink.png';
+            if(src.includes('bow')) imgBow = './bow.png';
+        };
+        img.src = src;
+    };
+    checkImage(imgClosed); checkImage(imgOpen); checkImage(imgBlink); checkImage(imgBow);
+
+    const avatar = document.getElementById('avatar-image');
+
+    // --- API・会話管理 ---
+    let conversationId = '';
+    let idleTimer;
+    const IDLE_TIMEOUT = 60000;
+    
+    function resetConversation() {
+        document.getElementById('chat-log').innerHTML = `<div class="message ai"><div class="message-content">ようこそアットビジネスセンターへ。AIコンシェルジュがご案内させていただきます。下のボタンを押してご質問をどうぞ。</div></div>`;
+        conversationId = '';
+        const recognitionResult = document.getElementById('recognition-result');
+        const micBtn = document.getElementById('mic-btn');
+        recognitionResult.textContent = '⌨️ マイクボタンを押してお話しください...';
+        recognitionResult.classList.remove('listening');
+        micBtn.classList.remove('listening');
+        avatar.src = imgClosed;
+        startIdleTimer();
+    }
+    function startIdleTimer() { clearTimeout(idleTimer); idleTimer = setTimeout(resetConversation, IDLE_TIMEOUT); }
+    function stopIdleTimer() { clearTimeout(idleTimer); }
+    startIdleTimer();
+
+    // --- チャット表示 ---
+    const chatLog = document.getElementById('chat-log');
+    function addMessage(text, type) {
+        const messageDiv = document.createElement('div'); messageDiv.className = `message ${type}`;
+        const contentDiv = document.createElement('div'); contentDiv.className = 'message-content'; contentDiv.textContent = text;
+        messageDiv.appendChild(contentDiv); chatLog.appendChild(messageDiv); chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    // --- アニメーション ---
+    let isBlinking = false;
+    let isSpeaking = false;
+    let isBowing = false;
+
+    function executeBlink() {
+        if (isSpeaking || isBowing) return;
+        isBlinking = true; avatar.src = imgBlink;
+        setTimeout(() => { if (!isSpeaking && !isBowing) { avatar.src = imgClosed; } isBlinking = false; }, 150);
+    }
+    setInterval(executeBlink, 4000);
+
+    let speakInterval;
+    function startLipSync() {
+        if (isSpeaking) return;
+        isSpeaking = true; let showOpen = false;
+        speakInterval = setInterval(() => { 
+            if (isBowing) { avatar.src = imgBow; } else { showOpen = !showOpen; avatar.src = showOpen ? imgOpen : imgClosed; }
+        }, 150);
+        stopIdleTimer(); 
+    }
+    function stopLipSync() {
+        clearInterval(speakInterval); isSpeaking = false; isBowing = false;
+        avatar.src = imgClosed;
+        startIdleTimer(); 
+    }
+
+    function speakAIResponse(text) {
+        if (!window.speechSynthesis) { startLipSync(); setTimeout(stopLipSync, 3000); return; }
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'ja-JP'; utterance.rate = 1.1; 
+        utterance.onstart = () => { startLipSync(); };
+        utterance.onend = () => { stopLipSync(); };
+        utterance.onerror = () => { stopLipSync(); };
+        window.speechSynthesis.speak(utterance);
+    }
+
+    // --- フルスクリーン機能 ---
+    function enterFullScreen() {
+        const docElm = document.documentElement;
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+            if (docElm.requestFullscreen) { docElm.requestFullscreen(); } 
+            else if (docElm.webkitRequestFullscreen) { docElm.webkitRequestFullscreen(); }
+        }
+    }
+
+    // --- 音声認識 ---
+    const micBtn = document.getElementById('mic-btn');
+    const recognitionResult = document.getElementById('recognition-result');
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition;
+
+    if (SpeechRecognition) {
+        recognition = new SpeechRecognition();
+        recognition.lang = 'ja-JP'; recognition.interimResults = true; recognition.continuous = true;
+        let isListening = false;
+        let speechTimeout;
+
+        micBtn.addEventListener('click', () => {
+            enterFullScreen();
+            if (isListening) {
+                recognition.stop();
+            } else {
+                window.speechSynthesis.cancel(); 
+                micBtn.classList.add('listening');
+                recognitionResult.textContent = '🎤 音声を認識しています...';
+                recognitionResult.classList.add('listening');
+                recognition.start();
+                isListening = true;
+                stopIdleTimer(); 
+
+                clearTimeout(speechTimeout);
+                speechTimeout = setTimeout(() => {
+                    if (isListening) {
+                        recognition.abort(); 
+                        recognitionResult.textContent = '⌨️ マイクボタンを押してお話しください...';
+                        micBtn.classList.remove('listening');
+                        recognitionResult.classList.remove('listening');
+                        isListening = false;
+                        startIdleTimer(); 
+                    }
+                }, 10000); 
+            }
+        });
+
+        recognition.onresult = (event) => {
+            clearTimeout(speechTimeout);
+            let finalTranscript = ''; let interimTranscript = '';
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                if (event.results[i].isFinal) { finalTranscript += event.results[i][0].transcript; } else { interimTranscript += event.results[i][0].transcript; }
+            }
+            recognitionResult.textContent = finalTranscript || interimTranscript;
+        };
+
+        recognition.onend = () => {
+            clearTimeout(speechTimeout); 
+            micBtn.classList.remove('listening');
+            recognitionResult.classList.remove('listening');
+            isListening = false;
+            
+            const transcript = recognitionResult.textContent;
+            if (!transcript || transcript === '🎤 音声を認識しています...' || transcript === '⌨️ マイクボタンを押してお話しください...') {
+                recognitionResult.textContent = '⌨️ マイクボタンを押してお話しください...';
+                startIdleTimer(); 
+                return;
+            }
+            
+            addMessage(transcript, 'user');
+            recognitionResult.textContent = '🧠 考え中...';
+            sendToDify(transcript);
+        };
+    }
+
+    // --- Dify API通信（Netlify Functions経由） ---
+    async function sendToDify(text) {
+        stopIdleTimer();
+        try {
+            const response = await fetch('/.netlify/functions/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ inputs: {}, query: text, user: "guest_user", conversation_id: conversationId || undefined, response_mode: "blocking" })
+            });
+            
+            if (!response.ok) throw new Error('通信エラーが発生しました');
+            const data = await response.json();
+            conversationId = data.conversation_id; 
+            
+            const bowKeywords = ["申し訳ありません", "申し訳ございません", "失礼いたしました", "失礼いたします", "失礼しました", "ありがとうございます", "ありがとうございました"];
+            if (bowKeywords.some(keyword => data.answer.includes(keyword))) {
+                isBowing = true; 
+                setTimeout(() => { isBowing = false; }, 3000); 
+            }
+            
+            addMessage(data.answer, 'ai');
+            recognitionResult.textContent = '⌨️ マイクボタンを押してお話しください...';
+            speakAIResponse(data.answer);
+
+        } catch (error) {
+            console.error(error);
+            isBowing = true;
+            setTimeout(() => { isBowing = false; }, 3000);
+            
+            addMessage('申し訳ありません、エラーが発生しました。', 'ai');
+            recognitionResult.textContent = '⌨️ マイクボタンを押してお話しください...';
+            speakAIResponse('申し訳ありません、エラーが発生しました。');
+            startIdleTimer();
+        }
+    }
+</script>
+
+</body>
+</html>
