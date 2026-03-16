@@ -1,32 +1,29 @@
 exports.handler = async function(event, context) {
-  // 1. フロント（画面）からのデータを受け取る
   let body;
   try {
     body = JSON.parse(event.body);
   } catch (e) {
-    return { statusCode: 400, body: JSON.stringify({ error: "リクエストの形式が不正です" }) };
+    return { statusCode: 400, body: JSON.stringify({ error: "リクエスト形式エラー" }) };
   }
 
   const DIFY_API_KEY = process.env.DIFY_API_KEY;
   if (!DIFY_API_KEY) {
-    return { statusCode: 500, body: JSON.stringify({ error: "APIキーが設定されていません" }) };
+    return { statusCode: 500, body: JSON.stringify({ error: "APIキー未設定" }) };
   }
 
-  // 2. Difyに送るデータを、厳格なルールに合わせて組み立てる
+  // 💡 ここを "streaming" に変更し、Difyのルールに従います！
   const requestBody = {
     inputs: {},
     query: body.query,
     user: "guest_user",
-    response_mode: "blocking"
+    response_mode: "streaming" 
   };
 
-  // ※会話IDがある場合のみ追加する（空っぽのIDを送るとDifyに怒られるため）
   if (body.conversation_id) {
     requestBody.conversation_id = body.conversation_id;
   }
 
   try {
-    // 3. DifyのAPI玄関（chat-messages）をノックする
     const difyResponse = await fetch('https://api.dify.ai/v1/chat-messages', {
       method: 'POST',
       headers: {
@@ -36,26 +33,47 @@ exports.handler = async function(event, context) {
       body: JSON.stringify(requestBody)
     });
 
-    // 4. Difyからの返事を受け取る
-    const data = await difyResponse.json();
-
-    // 💡 もしDifyがエラー（400など）を返してきたら、その「理由」をそのまま画面に送り返す
     if (!difyResponse.ok) {
-      console.error("Dify Error Details:", data); // Netlifyのログ用
-      return {
-        statusCode: difyResponse.status,
-        body: JSON.stringify(data) // 画面側にエラーの詳細を伝える
-      };
+      const errorData = await difyResponse.json();
+      console.error("Dify Error:", errorData);
+      return { statusCode: difyResponse.status, body: JSON.stringify(errorData) };
     }
 
-    // 5. 成功したら、AIの回答を画面に返す
+    // 💡 パラパラ送られてくるストリーミングデータを読み込み、1つの文章に合体させる処理
+    const responseText = await difyResponse.text();
+    const lines = responseText.split('\n');
+    let fullAnswer = "";
+    let convoId = "";
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const dataStr = line.substring(6).trim();
+        if (dataStr === '[DONE]') continue; // 終了の合図は無視
+        
+        try {
+          const data = JSON.parse(dataStr);
+          // エージェントの返答テキストをどんどん結合していく
+          if (data.event === 'agent_message' || data.event === 'message') {
+            if (data.answer) fullAnswer += data.answer;
+            if (data.conversation_id) convoId = data.conversation_id;
+          }
+        } catch (e) {
+          // JSONパースエラーは無視して次へ
+        }
+      }
+    }
+
+    // 💡 画面側（HTML）が待っている形に整えてから返す
     return {
       statusCode: 200,
-      body: JSON.stringify(data)
+      body: JSON.stringify({
+        answer: fullAnswer,
+        conversation_id: convoId || body.conversation_id
+      })
     };
 
   } catch (error) {
     console.error("Fetch Error:", error);
-    return { statusCode: 500, body: JSON.stringify({ error: "通信中に致命的なエラーが発生しました" }) };
+    return { statusCode: 500, body: JSON.stringify({ error: "通信エラー" }) };
   }
 };
