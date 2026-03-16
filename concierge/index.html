@@ -218,15 +218,42 @@
         startIdleTimer(); 
     }
 
+    // 💡 --- ここからAI音声のカスタマイズ（Windows・30代女性風） ---
     function speakAIResponse(text) {
         if (!window.speechSynthesis) { startLipSync(); setTimeout(stopLipSync, 3000); return; }
+        
+        window.speechSynthesis.cancel(); // 連続して話さないように前の音声をリセット
+        
         const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'ja-JP'; utterance.rate = 1.1; 
+        utterance.lang = 'ja-JP';
+        
+        // パソコンに入っている声のリストを取得
+        const voices = window.speechSynthesis.getVoices();
+        const jaVoices = voices.filter(v => v.lang.includes('ja'));
+        
+        if (jaVoices.length > 0) {
+            // Windowsで自然な女性の声の優先順位
+            const preferredVoices = ['Nanami', 'Google 日本語', 'Haruka'];
+            let selectedVoice = null;
+            for (const prefName of preferredVoices) {
+                selectedVoice = jaVoices.find(v => v.name.includes(prefName));
+                if (selectedVoice) break;
+            }
+            utterance.voice = selectedVoice || jaVoices[0];
+        }
+
+        // 30代の落ち着きを出すチューニング
+        utterance.pitch = 0.9;  // 少し低く
+        utterance.rate = 0.95;  // 少しゆっくり
+        
+        // 口パクアニメーションとの連動
         utterance.onstart = () => { startLipSync(); };
         utterance.onend = () => { stopLipSync(); };
         utterance.onerror = () => { stopLipSync(); };
+        
         window.speechSynthesis.speak(utterance);
     }
+    // 💡 --- ここまで ---
 
     // --- フルスクリーン機能 ---
     function enterFullScreen() {
@@ -311,7 +338,7 @@
             const response = await fetch('/.netlify/functions/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ inputs: {}, query: text, user: "guest_user", conversation_id: conversationId || undefined, response_mode: "blocking" })
+                body: JSON.stringify({ inputs: {}, query: text, user: "guest_user", conversation_id: conversationId || undefined })
             });
             
             if (!response.ok) throw new Error('通信エラーが発生しました');
